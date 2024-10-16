@@ -1,4 +1,4 @@
-import Stack from './stack';
+import Stack from "./stack";
 import Konva from "konva";
 import { createMachine, interpret } from "xstate";
 
@@ -8,6 +8,61 @@ const stage = new Konva.Stage({
     height: 400,
 });
 
+class Command {
+    execute() {}
+}
+
+class ConcreteCommand extends Command {
+    constructor(line, layer) {
+        super();
+        this.line = line;
+        this.layer = layer;
+    }
+
+    execute() {
+        this.layer.add(this.line);
+    }
+
+    undo() {
+        this.line.remove();
+    }
+}
+class UndoManager {
+    constructor() {
+        this.undoStack = new Stack();
+        this.redoStack = new Stack();
+    }
+
+    execute(cmd) {
+        this.undoStack.push(cmd);
+        cmd.execute();
+    }
+
+    canUndo() {
+        return !this.undoStack.isEmpty();
+    }
+
+    canRedo() {
+        return !this.redoStack.isEmpty();
+    }
+
+    undo() {
+        if (this.canUndo()) {
+            let cmd = this.undoStack.pop();
+            this.redoStack.push(cmd);
+            cmd.undo();
+        }
+    }
+
+    redo() {
+        if (this.canRedo()) {
+            let cmd = this.redoStack.pop();
+            this.undoStack.push(cmd);
+            cmd.execute();
+        }
+    }
+}
+
 // Une couche pour le dessin
 const dessin = new Konva.Layer();
 // Une couche pour la polyline en cours de construction
@@ -16,7 +71,9 @@ stage.add(dessin);
 stage.add(temporaire);
 
 const MAX_POINTS = 10;
-let polyline // La polyline en cours de construction;
+let polyline; // La polyline en cours de construction;
+
+let undoManager = new UndoManager();
 
 const polylineMachine = createMachine(
     {
@@ -41,7 +98,8 @@ const polylineMachine = createMachine(
                     MOUSEMOVE: {
                         actions: "setLastPoint",
                     },
-                    Escape: { // event.key
+                    Escape: {
+                        // event.key
                         target: "idle",
                         actions: "abandon",
                     },
@@ -69,12 +127,14 @@ const polylineMachine = createMachine(
                         actions: "abandon",
                     },
 
-                    Enter: { // event.key
+                    Enter: {
+                        // event.key
                         target: "idle",
                         actions: "saveLine",
                     },
 
-                    Backspace: [ // event.key
+                    Backspace: [
+                        // event.key
                         {
                             target: "manyPoints",
                             actions: "removeLastPoint",
@@ -119,7 +179,9 @@ const polylineMachine = createMachine(
                 polyline.points(newPoints);
                 polyline.stroke("black"); // On change la couleur
                 // On sauvegarde la polyline dans la couche de dessin
-                dessin.add(polyline); // On l'ajoute à la couche de dessin
+                // dessin.add(polyline); // On l'ajoute à la couche de dessin
+                let cmd = new ConcreteCommand(polyline, dessin);
+                undoManager.execute(cmd);
             },
             addPoint: (context, event) => {
                 const pos = stage.getPointerPosition();
@@ -153,6 +215,8 @@ const polylineMachine = createMachine(
     }
 );
 
+
+
 const polylineService = interpret(polylineMachine)
     .onTransition((state) => {
         console.log("Current state:", state.value);
@@ -170,10 +234,22 @@ stage.on("mousemove", () => {
 window.addEventListener("keydown", (event) => {
     console.log("Key pressed:", event.key);
     polylineService.send(event.key);
+    if(event.key == "u"){
+        undoManager.undo();
+    }
+    if(event.key == "r"){
+        undoManager.redo();
+    }
 });
 
 // bouton Undo
 const undoButton = document.getElementById("undo");
 undoButton.addEventListener("click", () => {
-    
+    undoManager.undo();
+});
+
+// boutton Redo
+const redoButton = document.getElementById("redo");
+redoButton.addEventListener("click", () => {
+    undoManager.redo();
 });
